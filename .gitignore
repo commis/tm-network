@@ -1,4 +1,9 @@
+# ignore files
+# /monitor/lib/*.jar
+# /tools/0.18.0/*
+# /tools/0.23.1/*
+# /config/keystore/UTC--*
+
+# ignore directory
 /chaincode/
-/tools/0.18.0/*
-/tools/0.23.1/*
-/config/keystore/UTC--*
+/backup/

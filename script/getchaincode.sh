@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ROOT_FOLDER=$(cd `dirname $(readlink -f "$0")`/..; pwd)
+ROOT_FOLDER=$(cd `dirname $(readlink -f "$0")`/.. && pwd)
 
 curr_dir=`pwd`
 ccdir=${ROOT_FOLDER}/chaincode

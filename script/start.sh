@@ -1,11 +1,11 @@
 #!/bin/bash
 
-ROOT_FOLDER=$(cd `dirname $(readlink -f "$0")`/..; pwd)
+ROOT_DIR=$(cd `dirname $(readlink -f "$0")`/.. && pwd)
 
-host=192.168.56.3
+host=192.168.56.4
 
 curr_dir=`pwd`
-cd ${ROOT_FOLDER}/chaincode
+cd ${ROOT_DIR}/chaincode
 
 echo "start replace server host address ..."
 sed -i "s@http.*@http://${host}:8545\"));@g" 1.compileDeploy_tree.js 1.compileDeploy_greenToken.js

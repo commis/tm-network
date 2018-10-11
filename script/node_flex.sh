@@ -2,36 +2,41 @@
 
 set -e
 
-ROOT_FOLDER=$(cd `dirname $(readlink -f "$0")`/..; pwd)
-EXEC_FOLDER=$(eth=$(which ethermint); echo ${eth%/*}; unset eth)
-ENV_FILE=${ROOT_FOLDER}/script/.env
-
-REMOTE_USER=$(cat ${ENV_FILE} |grep User |awk -F'=' '{print $2}')
-REMOTE_PASSWD=$(cat ${ENV_FILE} |grep Passwd |awk -F'=' '{print $2}')
-CHAIN_DATA=$(cat ${ENV_FILE} |grep DataDir |awk -F'=' '{print $2}')
-HOSTS_LIST=$(cat ${ENV_FILE} |grep 'add:peer' |cut -d: -f2)
-NODE_FROM=$(cat ${ENV_FILE} |grep '^add:from_node' |cut -d= -f2)
-DATA_FROM=$(cat ${ENV_FILE} |grep '^add:from_data' |cut -d= -f2)
-
 function printHelp () {
-    echo "Usage: ./`basename $0` [-t start|del]"
+    echo "Usage: ./`basename $0` -t [del|start]"
 }
 
+# parse script args
+while getopts ":t:" OPTION; do
+    case ${OPTION} in
+    t)
+        OP_METHOD=$OPTARG
+        ;;
+    ?)
+        printHelp
+        exit 1
+    esac
+done
+
+
+ROOT_DIR=$(cd `dirname $(readlink -f "$0")`/.. && pwd)
+ENV_FILE=${ROOT_DIR}/config/env.json
+EXEC_DIR=${ROOT_DIR}/tools/${OP_VERSION}
+
+LOGIN_USR=$(cat ${ENV_FILE} |jq '.user.name'|sed 's/"//g')
+LOGIN_PWD=$(cat ${ENV_FILE} |jq '.user.passwd'|sed 's/"//g')
+CHAIN_DIR=$(cat ${ENV_FILE} |jq '.datapath'|sed 's/"//g')
+ADD_NODES=$(cat ${ENV_FILE} |jq '.setup.node.add.host[]'|sed 's/"//g')
+NODE_FROM=$(cat ${ENV_FILE} |jq '.setup.add.from.node'|sed 's/"//g')
+DATA_FROM=$(cat ${ENV_FILE} |jq '.setup.add.from.data'|sed 's/"//g')
+
 function sshConn() {
-    sshpass -p ${REMOTE_PASSWD} ssh -o StrictHostKeychecking=no ${REMOTE_USER}@${1} "$2"
+    sshpass -p ${LOGIN_PWD} ssh -o StrictHostKeychecking=no ${LOGIN_USR}@${1} "$2"
 }
 
 function copyNodeFiles() {
     echo "copy files: '$2'"
-    sshpass -p ${REMOTE_PASSWD} scp -o StrictHostKeychecking=no -C -r "$2" ${REMOTE_USER}@${1}:${CHAIN_DATA}
-}
-
-function validateArgs () {
-    if [ -z "${UP_DOWN}" ]; then
-        echo "Option start/del not mentioned"
-        printHelp
-        exit 1
-    fi
+    sshpass -p ${LOGIN_PWD} scp -o StrictHostKeychecking=no -C -r "$2" ${LOGIN_USR}@${1}:${CHAIN_DIR}
 }
 
 function nodeServerStart() {
@@ -39,7 +44,7 @@ function nodeServerStart() {
     docker stop ${data_c}
    
     # support restore bad node, remove bad node contain
-    node_src=${CHAIN_DATA}/${NODE_FROM}
+    node_src=${CHAIN_DIR}/${NODE_FROM}
     node_src_his=${node_src}_$(date "+%Y%m%d%H%M%S")
     if [ "${NODE_FROM}" != "" ]; then
         node_c=$(docker ps |grep ${NODE_FROM} |awk '{print $1}')
@@ -47,11 +52,11 @@ function nodeServerStart() {
         docker rm -f ${node_c}
     fi
 
-    data_src=${CHAIN_DATA}/${DATA_FROM}
-    for node in ${HOSTS_LIST}; do
+    data_src=${CHAIN_DIR}/${DATA_FROM}
+    for node in ${ADD_NODES}; do
         nodeInfo=${node%,*}
         name=${nodeInfo%=*}
-        home=${CHAIN_DATA}/${name}
+        home=${CHAIN_DIR}/${name}
         if [ ! -d "${home}" ]; then
             continue
         fi
@@ -86,10 +91,10 @@ function nodeServerStart() {
 }
 
 function nodeServerDel() {
-    for node in ${HOSTS_LIST}; do
+    for node in ${ADD_NODES}; do
         nodeInfo=${node%,*}
         name=${nodeInfo%=*}
-        home=${CHAIN_DATA}/${name}
+        home=${CHAIN_DIR}/${name}
 
         docker ps -a |grep ${name} |awk '{print $1}' |xargs -ti docker rm -f {}
         if [ -d "${home}" ]; then
@@ -98,8 +103,16 @@ function nodeServerDel() {
     done
 }
 
-function execute() {
-    case ${UP_DOWN} in
+function validateArgs () {
+    if [ -z "${OP_METHOD}" ]; then
+        echo "Option start/del not mentioned"
+        printHelp
+        exit 1
+    fi
+}
+
+function executeCommand() {
+    case ${OP_METHOD} in
         "start")
             nodeServerStart
             ;;
@@ -112,17 +125,6 @@ function execute() {
     esac
 }
 
-# parse script args
-while getopts ":t:" OPTION; do
-    case ${OPTION} in
-    t)
-        UP_DOWN=$OPTARG
-        ;;
-    ?)
-        printHelp
-        exit 1
-    esac
-done
-
 validateArgs
-execute
+executeCommand
+
