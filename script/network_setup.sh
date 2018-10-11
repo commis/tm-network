@@ -180,7 +180,6 @@ function startNodeService() {
 
         echo "start script at ${addr}:${name} ..."
         if [ "${addr}" == "${LOCALHOST}" ]; then
-            echo "sh ${CHAIN_DIR}/${name}/start.sh"
             sh ${CHAIN_DIR}/${name}/start.sh
         else
             sshConn ${addr} "mkdir -p ${CHAIN_DIR}"
