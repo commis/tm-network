@@ -1,57 +1,27 @@
 #!/bin/bash
 
-set -e
-
-function printHelp () {
-    echo "Usage: ./`basename $0` -t [up|down] -v [0.18.0|0.23.1]"
-}
-
-# parse script args
-while getopts ":t:v:" OPTION; do
-    case ${OPTION} in
-    t)
-        OP_METHOD=$OPTARG
-        ;;
-    v)
-        OP_VERSION=$OPTARG
-        ;;
-    ?)
-        printHelp
-        exit 1
-    esac
-done
+# set -e
 
 # all global envirment parameter
+OP_VERSION=0.23.1
 ROOT_DIR=$(cd `dirname $(readlink -f "$0")`/.. && pwd)
 ENV_FILE=${ROOT_DIR}/config/env.json
-KEYSTORE=${ROOT_DIR}/config/keystore
 GNS_FILE=${ROOT_DIR}/config/genesis.json
 EXEC_DIR=${ROOT_DIR}/tools/${OP_VERSION}
+EXEC_BIN=${ROOT_DIR}/tools/${OP_VERSION}/tm_tools
 
 DOCKER_OS=$(cat ${ENV_FILE} |jq '.system'|sed 's/"//g')
-LOGIN_USR=$(cat ${ENV_FILE} |jq '.user.name'|sed 's/"//g')
-LOGIN_PWD=$(cat ${ENV_FILE} |jq '.user.passwd'|sed 's/"//g')
-CHAIN_DIR=$(cat ${ENV_FILE} |jq '.datapath'|sed 's/"//g')
 LOCALHOST=$(cat ${ENV_FILE} |jq '.localhost'|sed 's/"//g')
 NODE_LIST=$(cat ${ENV_FILE} |jq '.setup.node.init[]'|sed 's/"//g')
 IP_NUMBER=$(cat ${ENV_FILE} |jq '.setup.node.init[]'|cut -d= -f2|cut -d, -f1|sort|uniq|wc -l)
-ADD_NODES=$(cat ${ENV_FILE} |jq '.setup.node.add.host[]'|sed 's/"//g')
-NODE_FROM=$(cat ${ENV_FILE} |jq '.setup.add.from.node'|sed 's/"//g')
 
-PUB_KEYS=${CHAIN_DIR}/pub_keys
+OLD_DATA=$(cat ${ENV_FILE} |jq '.upgrade.src_data'|sed 's/"//g')
+NEW_DATA=$(cat ${ENV_FILE} |jq '.upgrade.tag_data'|sed 's/"//g')
+PUB_KEYS=${NEW_DATA}/pub_keys
 VER_PORT=$(cat ${ENV_FILE}    |jq '.setup.port' |jq -c "map(select([.version == "\"${OP_VERSION}\""] | all))[]")
 INIT_PORTS=$(echo ${VER_PORT} |jq '.ports'|sed 's/"//g')
 DEBUG_PORT=$(echo ${VER_PORT} |jq '.debug'|sed 's/"//g')
 HAVE_TMP2P=$(echo ${VER_PORT} |jq '.p2ptm'|sed 's/"//g')
-
-function sshConn() {
-    sshpass -p ${LOGIN_PWD} ssh -o StrictHostKeychecking=no ${LOGIN_USR}@${1} "$2"
-}
-
-function copyNodeFiles() {
-    echo "copy files: '$2'"
-    sshpass -p ${LOGIN_PWD} scp -o StrictHostKeychecking=no -C -r "$2" ${LOGIN_USR}@${1}:${CHAIN_DIR}
-}
 
 function createNodeKey() {
     validator=$1
@@ -116,19 +86,13 @@ function createStartScript() {
 cat << EOF > ${startScript}
 docker run -tid --net=${network_mode} --name=${name} \\
     ${argPorts} \\
-    -v ${CHAIN_DIR}/${name}:/chaindata \\
+    -v ${NEW_DATA}/${name}:/chaindata \\
     -v ${EXEC_DIR}:/bin ${DOCKER_OS} /bin/ethermint \\
     --datadir /chaindata --with-tendermint --rpc --rpccorsdomain=0.0.0.0 --rpcaddr=0.0.0.0 --ws --wsaddr=0.0.0.0 --rpcapi eth,net,web3,personal,admin,shh \\
     --gcmode=full --lightpeers=15 --pex=true --fast_sync=true --routable_strict=false \\
     --priv_validator_file=config/priv_validator.json --addr_book_file=addr_book.json \\
     ${tm_p2paddr} ${persistent_peers} ${pprof_debug} --logLevel=info
 EOF
-
-    # init user keystore
-    peer_keystore=${CHAIN_DIR}/${name}/keystore
-    if [[ -d "${KEYSTORE}" && -d "${peer_keystore}" ]]; then
-        cp -r ${KEYSTORE}/* ${peer_keystore}/
-    fi
 }
 
 function mergeNodePubKeys() {
@@ -169,30 +133,10 @@ function replaceGenesisPubKey() {
         nodeInfo=${node%,*}
         name=$(echo ${nodeInfo%=*})
 
-        json_file=${CHAIN_DIR}/${name}/tendermint/config/genesis.json
+        json_file=${NEW_DATA}/${name}/tendermint/config/genesis.json
         replacePubKey ${json_file} "${context}" "${chainid}"
     done
     rm -f ${PUB_KEYS}
-}
-
-function startNodeService() {
-    for node in ${NODE_LIST}; do
-        nodeInfo=${node%,*}
-        name=${nodeInfo%=*}
-        addr=${nodeInfo#*=}
-
-        echo "start script at ${addr}:${name} ..."
-        if [ "${addr}" == "${LOCALHOST}" ]; then
-            sh ${CHAIN_DIR}/${name}/start.sh
-        else
-            sshConn ${addr} "mkdir -p ${CHAIN_DIR}"
-            copyNodeFiles ${addr} "${CHAIN_DIR}/${name}"
-            copyNodeFiles ${addr} "${ROOT_DIR}/config"
-            copyNodeFiles ${addr} "${ROOT_DIR}/script"
-            copyNodeFiles ${addr} "${ROOT_DIR}/tools"
-            sshConn ${addr} "sh ${CHAIN_DIR}/${name}/start.sh"
-        fi
-    done
 }
 
 function adjustLocalPortOfStartCommand() {
@@ -210,8 +154,85 @@ function adjustLocalPortOfStartCommand() {
     echo ${adjusted}
 }
 
-function networkUp() {
-    rm -rf ${CHAIN_DIR}/*
+function replaceGenesisName() {
+    oldValue="\"name\":\"\""
+    newValue="\"name\":\"$1\""
+    
+    json_file=${NEW_DATA}/${1}/tendermint/config/genesis.json
+    sed "s/${oldValue}/${newValue}/g" ${json_file} |jq . > ${json_file}.bak
+    mv ${json_file}.bak ${json_file}
+}
+
+function view_all() {
+    rstdir=$1
+    dbdir=$2
+    database=$3
+    output=${rstdir}/${database}_all.txt
+
+    db=${dbdir}/data/${database}
+    ${EXEC_BIN} view --db ${db} --a getall |sort -n -k2 -t: > ${output} 
+    
+    echo "view all ${database} for ${db} finished."
+}
+
+function view_detail_info() {
+    rstdir=$1
+    dbdir=$2
+    database=$3
+    params=$4
+    output=${rstdir}/${database}
+    mkdir -p ${output}
+    
+    db=${dbdir}/data/${database}
+    srcfile=${TM_VIEW}/${rstdir}/${database}_all.txt
+    while read line; do
+        outfile=${output}/$(echo $line |sed 's/:/_/g').txt
+        # echo "${EXEC_BIN} view --db ${db} --q $line ${params} |jq ."
+        ${EXEC_BIN} view --db ${db} --q $line ${params} |jq . > ${outfile} 
+    done < ${srcfile}
+    
+    echo "view all of ${database} for ${db} finished."
+}
+
+function view_version_data() {
+    dbdir=$1
+    rstdir=$1/result
+    params="--d"
+    if [ "$2" == "new" ]; then params="${params} --v"; fi
+    mkdir -p ${rstdir}
+
+    view_all ${rstdir} ${dbdir} "blockstore"
+    view_detail_info ${rstdir} ${dbdir} "blockstore" "${params}"
+    
+    view_all ${rstdir} ${dbdir} "state"
+    view_detail_info ${rstdir} ${dbdir} "state" "${params}"
+    
+    # view_all ${rstdir} ${verdir} "evidence"
+    # view_all ${rstdir} ${verdir} "trusthistory"
+}
+
+function migrate_node() {
+    tmData=${1}/tendermint
+    ethData=${1}/ethermint
+    cp -R ${OLD_DATA}/${ethData} ${NEW_DATA}/${ethData}
+    cp -R ${OLD_DATA}/${1}/keystore ${NEW_DATA}/${1}/keystore
+
+    oldPath=${OLD_DATA}/${tmData}
+    newPath=${NEW_DATA}/${tmData}
+    ${EXEC_DIR}/tendermint init --home ${newPath}
+    rm -rf ${home}/config/accountmap.json
+    cp -R ${oldPath}/data/cs.wal ${newPath}/data/cs.wal
+
+    echo "${EXEC_BIN} migrate --old ${oldPath} --new ${newPath}"
+    view_version_data ${oldPath} "old"
+    ${EXEC_BIN} migrate --old ${oldPath} --new ${newPath}
+    view_version_data ${newPath} "new"
+   
+    echo "migrate finished at ${1}"
+}
+
+function do_upgrade() {
+    rm -rf ${NEW_DATA}/*
     
     master_address=""
     master_hostip=""
@@ -226,14 +247,10 @@ function networkUp() {
         addr=${nodeInfo#*=}
         nodeType=${typeInfo#*=}
         argPorts=$(adjustLocalPortOfStartCommand ${addr} $(expr ${name#*r} - 1))
-        home=${CHAIN_DIR}/${name}/tendermint
-        chaindata=${CHAIN_DIR}/${name}/ethermint/chaindata
+        home=${NEW_DATA}/${name}/tendermint
+        mkdir -p ${home}
 
-        ${EXEC_DIR}/ethermint --datadir ${CHAIN_DIR}/${name}/ init ${GNS_FILE}
-        ${EXEC_DIR}/tendermint init --home ${home}
-        cp ${GNS_FILE} ${chaindata}
-        rm -rf ${home}/config/accountmap.json
-
+        migrate_node ${name}
         createNodeKey ${home}/config/priv_validator.json ${home}/config/node_key.json
         if [ "${nodeType}" == "1" ]; then
             createPubKeyFile ${home}/config/genesis.json ${name}
@@ -243,110 +260,17 @@ function networkUp() {
             master_address=$(cat ${home}/config/priv_validator.json |jq -r '.address' |sed 's/"//g' |tr 'A-Z' 'a-z')
             master_chainid=$(cat ${home}/config/genesis.json |jq -r '.chain_id')
         fi
-        createStartScript ${master_address} ${CHAIN_DIR}/${name}/start.sh ${name} ${master_host} "${argPorts}" $index
+        createStartScript ${master_address} ${NEW_DATA}/${name}/start.sh ${name} ${master_host} "${argPorts}" $index
 
         index=$(expr $index + 1)
     done
 
     mergeNodePubKeys
     replaceGenesisPubKey "${master_chainid}"
-    startNodeService
-
-    # install smart contract
-    # sh ./start.sh
 }
 
-function networkDown() {
-    for node in ${NODE_LIST}; do
-        nodeInfo=${node%,*}
-        addr=${nodeInfo#*=}
-
-        echo "stop network at ${addr} ..."
-        if [ "${addr}" != "${LOCALHOST}" ]; then
-            sshConn ${addr} "docker ps -a |grep ethermint |awk '{print \$1}' |xargs -ti docker rm -f {}"
-            sshConn ${addr} "rm -rf ${CHAIN_DIR}/*"
-        else
-            docker ps -a |grep ethermint |awk '{print $1}' |xargs -ti docker rm -f {}
-            break
-        fi
-    done
-    # rm -rf ${CHAIN_DIR}/*
+# main function
+function main() {
+    do_upgrade
 }
-
-function replaceGenesisName() {
-    oldValue="\"name\":\"\""
-    newValue="\"name\":\"$1\""
-    
-    json_file=${CHAIN_DIR}/${1}/tendermint/config/genesis.json
-    sed "s/${oldValue}/${newValue}/g" ${json_file} |jq . > ${json_file}.bak
-    mv ${json_file}.bak ${json_file}
-}
-
-function networkNodeAdd() {
-    first_node=$(cat ${ENV_FILE} |grep '^init:peer' |cut -d: -f2 |head -1)
-    first_node_name=${first_node%=*}
-    first_node_host=${first_node#*=}
-    home=${CHAIN_DIR}/${first_node_name}/tendermint
-    if [ ! -d "${home}" ]; then
-        echo "${first_node_name} is not exists"
-        exit 1
-    fi
-    master_address=$(cat ${home}/config/priv_validator.json |jq -r '.address' |sed 's/"//g' |tr 'A-Z' 'a-z')
-
-    for node in ${ADD_NODES}; do
-        nodeInfo=${node%,*}
-        typeInfo=${node#*,}
-        
-        name=${nodeInfo%=*}
-        addr=${nodeInfo#*=}
-        nodeType=${typeInfo#*=}
-        argPorts=$(adjustLocalPortOfStartCommand ${addr} $(expr ${name#*r} - 1))
-        home=${CHAIN_DIR}/${name}/tendermint
-        chaindata=${CHAIN_DIR}/${name}/ethermint/chaindata
-
-        ethermint --datadir ${CHAIN_DIR}/${name}/ init ${GNS_FILE}
-        tendermint init --home ${home}
-        cp ${GNS_FILE} ${chaindata}
-        rm -rf ${home}/config/accountmap.json
-        
-        replaceGenesisName ${name}
-        createNodeKey ${home}/config/priv_validator.json ${home}/config/node_key.json
-        createPubKeyFile ${home}/config/genesis.json ${name}
-        createStartScript ${master_address} ${CHAIN_DIR}/${name}/start.sh ${name} ${first_node_host} "${argPorts}" 1 
-       
-        if [ "${NODE_FROM}" != "" ]; then
-            echo "only support repair one consensus node"
-            break
-        fi
-    done
-    rm -rf ${CHAIN_DIR}/${PUB_KEYS}.peer*
-}
-
-function validateArgs () {
-    if [ -z "${OP_METHOD}" ]; then
-        echo "Option up/down not mentioned"
-        printHelp
-        exit 1
-    fi
-}
-
-function executeCommand() {
-    case ${OP_METHOD} in
-        "up")
-            networkUp
-            ;;
-        "down")
-            networkDown
-            ;;
-        "add")
-            networkNodeAdd
-            ;;
-        ?)
-            printHelp
-            exit 1
-    esac
-}
-
-validateArgs
-executeCommand
-
+main 2>&1 |grep -v 'duplicate proto'
