@@ -131,8 +131,8 @@ function migrate_node() {
     echo "finished to migrate ${oldPath}"
 }
 
-function do_upgrade() {
-    # rm -rf ${NEW_DATA}/*
+function do_upgrade_nodes() {
+    rm -rf ${NEW_DATA}/*
     init_upgrade_nodes
 
     index=0
@@ -174,6 +174,6 @@ function do_upgrade() {
 
 # main function
 function main() {
-    do_upgrade
+    do_upgrade_nodes
 }
 main 2>&1 |grep -v 'duplicate proto'
