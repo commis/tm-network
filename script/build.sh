@@ -15,6 +15,9 @@ for dir in ${build_modules}; do
     make install
 done
 
-cd ${GOPATH}/bin/
-cp -f ethermint tendermint ${ROOT_FOLDER}/tools/
+cd ${GOPATH}/bin
+mv -f ethermint tendermint ${ROOT_FOLDER}/tools/0.23.1
+cd ${ROOT_FOLDER}/tools/0.23.1
+chmod 777 ethermint tendermint
+
 cd ${curr_dir}

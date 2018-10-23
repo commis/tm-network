@@ -23,6 +23,10 @@ start:
 del:
 	@cd script && ./node_flex.sh -t del
 
+# upgrade from 0.18.0 to 0.23.1
+upgrade:
+	@cd script && ./upgrade_all.sh
+
 # start or stop node monitor api interface
 upmon:
 	@cd monitor && make up

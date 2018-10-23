@@ -31,7 +31,7 @@ EXEC_DIR=${ROOT_DIR}/tools/${OP_VERSION}
 DOCKER_OS=$(cat ${ENV_FILE} |jq '.system'|sed 's/"//g')
 LOGIN_USR=$(cat ${ENV_FILE} |jq '.user.name'|sed 's/"//g')
 LOGIN_PWD=$(cat ${ENV_FILE} |jq '.user.passwd'|sed 's/"//g')
-CHAIN_DIR=$(cat ${ENV_FILE} |jq '.datapath'|sed 's/"//g')
+CHAIN_DIR=$(cat ${ENV_FILE} |jq '.setup.port' |jq -c "map(select([.version == "\"${OP_VERSION}\""] | all))[]"|jq '.db'|sed 's/"//g')
 LOCALHOST=$(cat ${ENV_FILE} |jq '.localhost'|sed 's/"//g')
 NODE_LIST=$(cat ${ENV_FILE} |jq '.setup.node.init[]'|sed 's/"//g')
 IP_NUMBER=$(cat ${ENV_FILE} |jq '.setup.node.init[]'|cut -d= -f2|cut -d, -f1|sort|uniq|wc -l)
@@ -41,8 +41,8 @@ NODE_FROM=$(cat ${ENV_FILE} |jq '.setup.add.from.node'|sed 's/"//g')
 PUB_KEYS=${CHAIN_DIR}/pub_keys
 VER_PORT=$(cat ${ENV_FILE}    |jq '.setup.port' |jq -c "map(select([.version == "\"${OP_VERSION}\""] | all))[]")
 INIT_PORTS=$(echo ${VER_PORT} |jq '.ports'|sed 's/"//g')
-DEBUG_PORT=$(echo ${VER_PORT} |jq '.debug'|sed 's/"//g')
 HAVE_TMP2P=$(echo ${VER_PORT} |jq '.p2ptm'|sed 's/"//g')
+DEBUG_PORT=$(echo ${VER_PORT} |jq '.debug'|sed 's/"//g')
 
 function sshConn() {
     sshpass -p ${LOGIN_PWD} ssh -o StrictHostKeychecking=no ${LOGIN_USR}@${1} "$2"
@@ -121,8 +121,9 @@ docker run -tid --net=${network_mode} --name=${name} \\
     --datadir /chaindata --with-tendermint --rpc --rpccorsdomain=0.0.0.0 --rpcaddr=0.0.0.0 --ws --wsaddr=0.0.0.0 --rpcapi eth,net,web3,personal,admin,shh \\
     --gcmode=full --lightpeers=15 --pex=true --fast_sync=true --routable_strict=false \\
     --priv_validator_file=config/priv_validator.json --addr_book_file=addr_book.json \\
-    ${tm_p2paddr} ${persistent_peers} ${pprof_debug} --logLevel=info
+    ${persistent_peers} ${pprof_debug} --logLevel=info
 EOF
+# ${tm_p2paddr} 
 
     # init user keystore
     peer_keystore=${CHAIN_DIR}/${name}/keystore
@@ -263,9 +264,11 @@ function networkDown() {
 
         echo "stop network at ${addr} ..."
         if [ "${addr}" != "${LOCALHOST}" ]; then
+            sshConn ${addr} "docker ps -a |grep ethermint |awk '{print \$1}' |xargs -ti docker stop {}"
             sshConn ${addr} "docker ps -a |grep ethermint |awk '{print \$1}' |xargs -ti docker rm -f {}"
             sshConn ${addr} "rm -rf ${CHAIN_DIR}/*"
         else
+            docker ps -a |grep ethermint |awk '{print $1}' |xargs -ti docker stop {}
             docker ps -a |grep ethermint |awk '{print $1}' |xargs -ti docker rm -f {}
             break
         fi
