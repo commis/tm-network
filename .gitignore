@@ -1,10 +1,6 @@
 # ignore files
 /config/keystore/UTC--*
 /monitor/lib/*.jar
-/tools/0.18.0/*
-!/tools/0.18.0/*.md
-/tools/0.23.1/*
-!/tools/0.23.1/*.md
 
 # ignore directory
 /chaincode/
