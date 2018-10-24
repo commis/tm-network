@@ -65,4 +65,4 @@ function do_upgrade() {
 function main() {
     do_upgrade
 }
-main 2>&1 |grep -v 'duplicate proto'
+main $# 2>&1 |grep -v 'duplicate proto'

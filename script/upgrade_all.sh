@@ -176,4 +176,4 @@ function do_upgrade_nodes() {
 function main() {
     do_upgrade_nodes
 }
-main 2>&1 |grep -v 'duplicate proto'
+main $# 2>&1 |grep -v 'duplicate proto'

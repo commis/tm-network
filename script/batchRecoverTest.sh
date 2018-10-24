@@ -6,57 +6,77 @@ set -e
 DO_VERSION_TEST=$1
 MAX_ROUND_TEST=$2
 ROOT_DIR=$(cd `dirname $(readlink -f "$0")`/.. && pwd)
-SHELL_DIR=$(cd `dirname $(readlink -f "$0")` && pwd)
+SHEL_DIR=${ROOT_DIR}/script
 ENV_FILE=${ROOT_DIR}/config/env.json
-LOG_FILE=${ROOT_DIR}/logs/log.txt
 
+LAST_HEIGHT=1
 OLD_DATA=$(cat ${ENV_FILE} |jq '.upgrade.old_data'|sed 's/"//g')
 NEW_DATA=$(cat ${ENV_FILE} |jq '.upgrade.new_data'|sed 's/"//g')
+
+function message_color() {
+    echo -e "\033[40;31m[$1]\033[0m"
+}
 
 function kill_monitor() {
     docker ps -aq |xargs -ti docker rm -f {} > /dev/null 2>&1
     ps -ef |grep 'docker logs' |grep -v grep |awk '{print $2}' |xargs -ti kill -9 {}
 }
 
+function get_current_block_height() {
+    logline=$(docker logs peer1 |grep 'Finalizing commit of block'|tail -1)
+    if [ "${logline}" == "" ]; then
+        echo "last round not new block"
+        exit 1
+    fi
+    echo ${logline}
+    LAST_HEIGHT=$(echo "'"${logline}"'" |awk -F'=' '{print $3}'|awk '{print $1}')
+    message_color "after run 30 second, the current height is ${LAST_HEIGHT}"
+    kill_monitor
+}
+
 function monitor_block() {
-    docker logs -f peer1 |grep 'Finalizing commit of block' &
     sleep 30
     docker ps -aq |xargs -ti docker stop {} > /dev/null 2>&1
 }
 
 function create_new_chain() {
     kill_monitor
-
     if [ "${DO_VERSION_TEST}" == "old" ]; then
-        ${SHELL_DIR}/network_setup.sh -t up -v 0.18.0
+        ${SHEL_DIR}/network_setup.sh -t up -v 0.18.0
     else 
-        ${SHELL_DIR}/network_setup.sh -t up -v 0.23.1
+        ${SHEL_DIR}/network_setup.sh -t up -v 0.23.1
     fi
-
     monitor_block
 }
 
+function check_socket_port() {
+    while [ "$(netstat -na |grep '46656')" != "" ]; do
+        sleep 1
+    done
+}
+
 function restart_chain() {
-    kill_monitor
     if [ "${DO_VERSION_TEST}" == "old" ]; then
         peers=$(find ${OLD_DATA} -name "peer*")
     else 
         peers=$(find ${NEW_DATA} -name "peer*")
     fi
+    
+    check_socket_port
     for p in ${peers}; do
         sh ${p}/start.sh
     done
 }
 
 function round_test() {
-    lastHeight=$(docker logs peer1 |grep 'Finalizing commit of block'|tail -1|awk -F'=' '{print $3}'|awk '{print $1}')
+    get_current_block_height
     recovHeight=1
-    if [ $lastHeight -gt 6 ]; then
-        recovHeight=$(expr $lastHeight - 5)
+    if [ "${LAST_HEIGHT}" -gt 6 ]; then
+        recovHeight=$(expr ${LAST_HEIGHT} - 5)
     fi
-
-    echo "recov to height ${recovHeight}"
-    ${SHELL_DIR}/recover_height.sh ${recovHeight} ${DO_VERSION_TEST}
+    message_color "You want recover height to ${recovHeight}"
+    
+    ${SHEL_DIR}/recover_height.sh ${recovHeight} ${DO_VERSION_TEST}
     restart_chain
     monitor_block
 }
@@ -73,16 +93,16 @@ function main() {
     validateArgs $1
     if [ "${DO_VERSION_TEST}" != "old" ]; then DO_VERSION_TEST='new'; fi
     if [ "${MAX_ROUND_TEST}" == "" ]; then MAX_ROUND_TEST=10; fi
-   
-    echo "need do test round ${MAX_ROUND_TEST}, version ${DO_VERSION_TEST}"
+
+    message_color "You want test round ${MAX_ROUND_TEST}, version ${DO_VERSION_TEST}"
     
     create_new_chain
     declare -i i=1
-    while ((i<=${MAX_ROUND_TEST}));do
-        echo "execute test round ${i}"
+    while ((i<=${MAX_ROUND_TEST})); do
+        message_color "execute test round ${i}"
         round_test
         let ++i
     done
-    kill_monitor
+    get_current_block_height
 }
-main $#
+main $# 2>&1 |grep -v 'duplicate proto'
