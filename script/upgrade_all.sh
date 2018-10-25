@@ -23,6 +23,10 @@ INIT_PORTS=$(echo ${VER_PORT} |jq '.ports'|sed 's/"//g')
 HAVE_TMP2P=$(echo ${VER_PORT} |jq '.p2ptm'|sed 's/"//g')
 DEBUG_PORT=$(echo ${VER_PORT} |jq '.debug'|sed 's/"//g')
 
+function message_color() {
+    echo -e "\033[40;31m[$1]\033[0m"
+}
+
 function createNodeKey() {
     validator=$1
     tagfile=$2
@@ -127,8 +131,8 @@ function migrate_node() {
     rm -rf ${newPath}/data/evidence.db
     rm -rf ${newPath}/data/mempool.wal
     rm -rf ${newPath}/data/tx_index.db
-   
-    echo "finished to migrate ${oldPath}"
+  
+    message_color "finished to migrate ${oldPath}"
 }
 
 function do_upgrade_nodes() {
@@ -153,8 +157,10 @@ function do_upgrade_nodes() {
 
         topNode=`cat ${upgradeNodeFile} |head -1|awk '{print $1}'`
         if [[ "${topNode}" == "" || "${topNode}" == "${name}" ]]; then
+            message_color "need upgrade data for node ${name}"
             migrate_node ${name}
         else
+            message_color "need copy data for node ${name}"
             rm -rf ${NEW_DATA}/${name}/${datadir}/*
             cp -R ${NEW_DATA}/${topNode}/${datadir}/* ${NEW_DATA}/${name}/${datadir}/
         fi
@@ -170,6 +176,7 @@ function do_upgrade_nodes() {
         createStartScript ${master_address} ${NEW_DATA}/${name}/start.sh ${name} ${master_host} "${argPorts}" $index
         index=$(expr $index + 1)
     done
+    message_color "finished tendermint all data upgrade"
 }
 
 # main function
