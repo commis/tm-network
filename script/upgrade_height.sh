@@ -16,6 +16,10 @@ function message_color() {
     echo -e "\033[40;31m[$1]\033[0m"
 }
 
+function do_upgrade_clean() {
+    ps -ef |grep tm_tools |grep -v grep |awk '{print $2}' |xargs -ti kill -9 {}
+}
+
 function migrate_node() {
     tmData=${1}/tendermint
     oldPath=${OLD_DATA}/${tmData}
@@ -56,5 +60,6 @@ function do_upgrade_height() {
 # main function
 function main() {
     do_upgrade_height
+    do_upgrade_clean
 }
 main $# 2>&1 |grep -v 'duplicate proto'

@@ -12,6 +12,14 @@ EXEC_BIN=${ROOT_DIR}/tools/${OP_VERSION}/tm_tools
 OLD_DATA=$(cat ${ENV_FILE} |jq '.upgrade.old_data'|sed 's/"//g')
 NEW_DATA=$(cat ${ENV_FILE} |jq '.upgrade.new_data'|sed 's/"//g')
 
+function message_color() {
+    echo -e "\033[40;31m[$1]\033[0m"
+}
+
+function do_view_clean() {
+    ps -ef |grep tm_tools |grep -v grep |awk '{print $2}' |xargs -ti kill -9 {}
+}
+
 function view_all() {
     rstdir=$1
     dbdir=$2
@@ -73,7 +81,7 @@ function do_view_tendermint_data() {
 
     view_version_data ${dataPath} ${2}
 
-    echo "view finished at ${dataPath}"
+    message_color "view finished at ${dataPath}"
 }
 
 function validateArgs () {
@@ -94,8 +102,9 @@ function main() {
     fi
     
     for node in ${existNodes}; do
-        echo "view tendermint data for ${node}"
+        message_color "view tendermint data for ${node}"
         do_view_tendermint_data ${node} ${SHOW_VERSION}
     done
+    do_view_clean
 }
 main $# 2>&1 |grep -v 'duplicate proto'

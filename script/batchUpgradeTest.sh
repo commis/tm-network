@@ -14,6 +14,10 @@ function message_color() {
     echo -e "\033[40;31m[$1]\033[0m"
 }
 
+function do_upgrade_clean() {
+    ps -ef |grep tm_tools |grep -v grep |awk '{print $2}' |xargs -ti kill -9 {}
+}
+
 function kill_monitor() {
     docker ps -aq |xargs -ti docker rm -f {} > /dev/null 2>&1
     ps -ef |grep 'docker logs' |grep -v grep |awk '{print $2}' |xargs -ti kill -9 {}
@@ -76,5 +80,6 @@ function main() {
         round_test
         let ++i
     done
+    do_upgrade_clean
 }
 main $# 2>&1 |grep -v 'duplicate proto'
