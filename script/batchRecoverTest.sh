@@ -74,13 +74,14 @@ function restart_chain() {
 
 function round_test() {
     get_current_block_height
+
     recovHeight=1
     if [ "${LAST_HEIGHT}" -gt 6 ]; then
         recovHeight=$(expr ${LAST_HEIGHT} - 5)
     fi
     message_color "You want recover height to ${recovHeight}"
-    
     ${SHEL_DIR}/recover_height.sh ${recovHeight} ${DO_VERSION_TEST}
+    
     restart_chain
     monitor_block
 }

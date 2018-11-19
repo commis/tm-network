@@ -32,10 +32,11 @@ function do_recover_height() {
     echo "${EXEC_BIN} recover --db ${datadir} --h ${height} ${params}"
     ${EXEC_BIN} recover --db ${datadir} --h ${height} ${params}
     
+    rm -rf ${datadir}/addr_book.json
     rm -rf ${datadir}/data/evidence.db
     rm -rf ${datadir}/data/mempool.wal
     rm -rf ${datadir}/data/tx_index.db
-  
+
     message_color "finished to recover ${datadir}"
 }
 

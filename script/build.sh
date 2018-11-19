@@ -16,8 +16,8 @@ for dir in ${build_modules}; do
 done
 
 cd ${GOPATH}/bin
-mv -f ethermint tendermint ${ROOT_FOLDER}/tools/0.23.1
-cd ${ROOT_FOLDER}/tools/0.23.1
+cp -f ethermint tendermint ${ROOT_FOLDER}/tools/0.18.0
+cd ${ROOT_FOLDER}/tools/0.18.0
 chmod 777 ethermint tendermint
 
 cd ${curr_dir}

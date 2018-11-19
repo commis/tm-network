@@ -29,6 +29,7 @@ function message_color() {
 
 function do_upgrade_clean() {
     ps -ef |grep tm_tools |grep -v grep |awk '{print $2}' |xargs -ti kill -9 {}
+    find ${NEW_DATA} -name ".config" |xargs -ti rm -rf {}
 }
 
 function createNodeKey() {
